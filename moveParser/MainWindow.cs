@@ -20,7 +20,7 @@ using System.Diagnostics;
 
 namespace moveParser
 {
-    public partial class Form1 : Form
+    public partial class MainWindow : Form
     {
 #if DEBUG
         private static string dbpath = "../../db";
@@ -55,11 +55,11 @@ namespace moveParser
             RHH_1_9_0,
         }
 
-        public Form1()
+        public MainWindow()
         {
             InitializeComponent();
 
-            this.Text = "PoryMoves " + typeof(Form1).Assembly.GetName().Version.ToString(3);
+            this.Text = "PoryMoves HGE" + typeof(MainWindow).Assembly.GetName().Version.ToString(3);
 
             LoadGenerationData();
             if (cmbGeneration.Items.Count > 0)
@@ -125,6 +125,7 @@ namespace moveParser
             }
             //cListLevelUp.SetItemChecked(0, true);
         }
+
         private string NameToDefineFormat(string oldname)
         {
 
@@ -161,6 +162,7 @@ namespace moveParser
 
             return final;
         }
+
         bool InList(List<LevelUpMove> list, LevelUpMove element)
         {
             foreach (LevelUpMove entry in list)
@@ -272,8 +274,7 @@ namespace moveParser
             FinishMoveDataLoading();
         }
 
-        private void backgroundWorker1_ProgressChanged(object sender,
-            ProgressChangedEventArgs e)
+        private void backgroundWorker1_ProgressChanged(object sender, ProgressChangedEventArgs e)
         {
             this.Invoke((MethodInvoker)delegate
             {
@@ -374,12 +375,12 @@ namespace moveParser
             });
         }
 
-
         private void btnWriteLvlLearnsets_Click(object sender, EventArgs e)
         {
             SetEnableForAllElements(false);
             bwrkExportLvl.RunWorkerAsync();
         }
+
         private void bwrkExportLvl_DoWork(object sender, DoWorkEventArgs e)
         {
             MoveCombination mode = MoveCombination.UseLatest;
@@ -553,12 +554,22 @@ namespace moveParser
 
             // file header
             string sets = "";
-            if (!chkVanillaMode.Checked)
-                sets += "#define LEVEL_UP_MOVE(lvl, moveLearned) {.move = moveLearned, .level = lvl}\n";
-            else
-                sets += "#define LEVEL_UP_MOVE(lvl, move) ((lvl << 9) | move)\n";
-            if (chkLvl_LevelUpEnd.Checked)
-                sets += "#define LEVEL_UP_END (0xffff)\n";
+            if (chkLvl_HGEMode.Checked) {
+                sets += ".nds\n.thumb\n\n.include \"armips/include/macros.s\"\n\n.include \"asm/include/moves.inc\"\n.include \"asm/include/species.inc\"\n\n// the level up moves for each pokemon\n\nlevelup SPECIES_NONE\n\tterminatelearnset\n";
+
+            } else {
+                if (!chkVanillaMode.Checked) {
+                    sets += "#define LEVEL_UP_MOVE(lvl, moveLearned) {.move = moveLearned, .level = lvl}\n";
+                }
+                else {
+                    sets += "#define LEVEL_UP_MOVE(lvl, move) ((lvl << 9) | move)\n";
+                }
+                    
+                if (chkLvl_LevelUpEnd.Checked) {
+                    sets += "#define LEVEL_UP_END (0xffff)\n";
+                }                    
+            }
+           
 
             // iterate over mons
             i = 1;
@@ -584,20 +595,27 @@ namespace moveParser
                 }
                 // begin learnset
                 if (!name.usesBaseFormLearnset)
-                {
-                    if (!chkVanillaMode.Checked)
-                        sets += $"\nstatic const struct LevelUpMove s{name.VarName}LevelUpLearnset[] = {{\n";
-                    else
-                        sets += $"\nstatic const u16 s{name.VarName}LevelUpLearnset[] = {{\n";
+                { 
+                    if (chkLvl_HGEMode.Checked) {
+                        sets += $"\nlevelup SPECIES_{name.DefName}\n";
+                        foreach (LevelUpMove move in mon.LevelMoves) {
+                            sets += $"\tlearnset {move.Move}, {move.Level}\n";
+                        }
+                        sets += "\tterminatelearnset\n";
+                    } else {
+                        if (!chkVanillaMode.Checked)
+                            sets += $"\nstatic const struct LevelUpMove s{name.VarName}LevelUpLearnset[] = {{\n";
+                        else
+                            sets += $"\nstatic const u16 s{name.VarName}LevelUpLearnset[] = {{\n";
 
-                    if (mon.LevelMoves.Count == 0)
-                        sets += "    LEVEL_UP_MOVE( 1, MOVE_POUND),\n";
+                        if (mon.LevelMoves.Count == 0)
+                            sets += "    LEVEL_UP_MOVE( 1, MOVE_POUND),\n";
 
-                    foreach (LevelUpMove move in mon.LevelMoves)
-                    {
-                        sets += $"    LEVEL_UP_MOVE({move.Level,2}, {move.Move}),\n";
-                    }
-                    sets += "    LEVEL_UP_END\n};\n";
+                        foreach (LevelUpMove move in mon.LevelMoves) {
+                            sets += $"    LEVEL_UP_MOVE({move.Level,2}, {move.Move}),\n";
+                        }
+                        sets += "    LEVEL_UP_END\n};\n";
+                    }                    
                 }
 
                 int percent = i * 100 / namecount;
@@ -609,14 +627,25 @@ namespace moveParser
             if (!chkVanillaMode.Checked)
                 sets = replaceOldDefines(sets);
 
-            // write to file
-            File.WriteAllText("output/level_up_learnsets.h", sets);
+            if (chkLvl_HGEMode.Checked) {
+                // write to file
+                File.WriteAllText("output/levelupdata.s", sets);
 
-            bwrkExportLvl.ReportProgress(0);
-            // Set the text.
-            UpdateLoadingMessage(namecount + " Level Up movesets exported.");
+                bwrkExportLvl.ReportProgress(0);
+                // Set the text.
+                UpdateLoadingMessage(namecount + " Level Up movesets exported.");
 
-            MessageBox.Show("Level Up moves exported to \"output/level_up_learnsets.h\"", "Success!", MessageBoxButtons.OK);
+                MessageBox.Show("Level Up moves exported to \"output/levelupdata.s\"", "Success!", MessageBoxButtons.OK);
+            } else {
+                // write to file
+                File.WriteAllText("output/level_up_learnsets.h", sets);
+
+                bwrkExportLvl.ReportProgress(0);
+                // Set the text.
+                UpdateLoadingMessage(namecount + " Level Up movesets exported.");
+
+                MessageBox.Show("Level Up moves exported to \"output/level_up_learnsets.h\"", "Success!", MessageBoxButtons.OK);
+            }            
             SetEnableForAllElements(true);
         }
 
